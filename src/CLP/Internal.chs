@@ -7,10 +7,12 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE ForeignFunctionInterface   #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeApplications           #-}
 
 --------------------------------------------------------------------------------
 
@@ -63,37 +65,72 @@ foreign import ccall "../../../include/clp.h Clp_VersionRelease"
 
 --------------------------------------------------------------------------------
 
-{# pointer *Clp_Simplex as Clp_Simplex newtype #}
-
-{# pointer *Clp_Solve as Clp_Solve newtype #}
-
---------------------------------------------------------------------------------
+newtype Simplex
+  = Simplex (ForeignPtr ())
 
 foreign import ccall "../../../include/clp.h Clp_newModel"
   c_Clp_newModel
-  :: IO Clp_Simplex
+  :: IO (Ptr ())
 
-foreign import ccall "../../../include/clp.h Clp_deleteModel"
-  c_Clp_deleteModel
-  :: Clp_Simplex
-  -> IO ()
+foreign import ccall "../../../include/clp.h &Clp_deleteModel"
+  c_Clp_deleteModel :: FinalizerPtr ()
 
-foreign import ccall "../../../include/clp.h ClpSolve_new"
-  c_ClpSolve_new
-  :: IO Clp_Solve
-
-foreign import ccall "../../../include/clp.h ClpSolve_delete"
-  c_ClpSolve_delete
-  :: Clp_Solve
-  -> IO ()
+createSimplex :: IO Simplex
+createSimplex = do
+  ptr <- c_Clp_newModel
+  fptr <- newForeignPtr c_Clp_deleteModel ptr
+  pure (Simplex fptr)
 
 --------------------------------------------------------------------------------
 
--- foreign import ccall "../../../include/clp.h Clp_loadProblem"
---   c_Clp_loadProblem
---   :: Clp_Simplex -- model
---   -> Int -- numcols
---   -> Int -- numrows
---   -> 
+data Clp_Solve
+
+newtype Solve
+  = Solve (ForeignPtr Clp_Solve)
+
+foreign import ccall "../../../include/clp.h ClpSolve_new"
+  c_ClpSolve_new
+  :: IO (Ptr Clp_Solve)
+
+foreign import ccall "../../../include/clp.h &ClpSolve_delete"
+  c_ClpSolve_delete :: FinalizerPtr Clp_Solve
+
+createSolve :: IO Solve
+createSolve = do
+  ptr <- c_ClpSolve_new
+  fptr <- newForeignPtr c_ClpSolve_delete ptr
+  pure (Solve fptr)
+
+--------------------------------------------------------------------------------
+
+data OptimizationDir
+  = Minimize
+  | Maximize
+  | Ignore
+  deriving ()
+
+instance Storable OptimizationDir where
+  sizeOf    _ = sizeOf    (undefined :: Double)
+  alignment _ = alignment (undefined :: Double)
+
+  peek p = do
+    result <- id @Double <$> peek (castPtr p)
+    case result of
+      (1.0)  -> pure Minimize
+      (-1.0) -> pure Maximize
+      0.0    -> pure Ignore
+      _      -> fail "Something went wrong when marshalling an OptimizationDir"
+
+  poke p = \case
+    Minimize -> poke (castPtr p) (1.0  :: Double)
+    Maximize -> poke (castPtr p) (-1.0 :: Double)
+    Ignore   -> poke (castPtr p) (0.0  :: Double)
+
+--------------------------------------------------------------------------------
+
+
+-- foreign import ccall "../../../include/clp.h ClpSolve_new"
+--   c_ClpSolve_new
+--   :: IO (Ptr ())
 
 --------------------------------------------------------------------------------
